@@ -50,10 +50,22 @@ export default function InboxPage() {
     return () => clearInterval(interval)
   }, [])
 
-  const openTicket = (message) => {
-    setSelectedMessage(message)
-    setStatus(message.status)
-  }
+  const openTicket =  async (message) => {
+
+    try {
+      await fetch("https://api.helpdesk.meerkatcoding.com/webhook/get-email-thread", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: message.id
+        }),
+      });
+    } catch (error) {
+      console.error("❌ Client not found", error);
+    }
+
+    setSelectedMessage(message);
+  };
 
   const closeTicket = (e) => {
     if (e.target.id === "ticketModal") {
@@ -88,17 +100,18 @@ export default function InboxPage() {
   }
 
   const handleSendReply = async () => {
-    if (!replyText.trim()) return
-
+    if (!replyText.trim()) return;
+  
     const newReply = {
       sender: "Support Team",
       message: replyText,
       timestamp: new Date().toISOString(),
-    }
-
-    const updatedConversation = [...(selectedMessage.conversation || []), newReply]
-
+    };
+  
+    const updatedConversation = [...selectedMessage.conversation, newReply];
+  
     try {
+      // Update the ticket in Supabase (or your backend API)
       const response = await fetch("/api/update-ticket", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -106,24 +119,43 @@ export default function InboxPage() {
           id: selectedMessage.id,
           conversation: updatedConversation,
         }),
-      })
-
-      const result = await response.json()
+      });
+  
+      const result = await response.json();
       if (result.success) {
         setMessages(
-          messages.map((msg) => (msg.id === selectedMessage.id ? { ...msg, conversation: updatedConversation } : msg)),
-        )
-        setSelectedMessage({ ...selectedMessage, conversation: updatedConversation })
+          messages.map((msg) =>
+            msg.id === selectedMessage.id
+              ? { ...msg, conversation: updatedConversation }
+              : msg
+          )
+        );
+        setSelectedMessage({ ...selectedMessage, conversation: updatedConversation });
       } else {
-        console.error("❌ Failed to update ticket:", result.error)
+        console.error("❌ Failed to update ticket:", result.error);
       }
     } catch (error) {
-      console.error("❌ Error updating ticket:", error)
+      console.error("❌ Error updating ticket:", error);
     }
-
-    setReplyText("")
-  }
-
+  
+    // Independently call the custom webhook
+    try {
+      await fetch("https://api.helpdesk.meerkatcoding.com/webhook/send-email-response", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: selectedMessage.id,
+          message: newReply,
+        }),
+      });
+    } catch (error) {
+      console.error("❌ Error sending the email:", error);
+    }
+  
+    setIsReplying(false);
+    setReplyText("");
+  };
+  
   const deleteTicket = async (id) => {
     try {
       const response = await fetch("/api/delete-ticket", {
