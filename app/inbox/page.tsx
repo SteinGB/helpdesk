@@ -247,7 +247,7 @@ export default function InboxPage() {
           <h2 className="text-2xl font-semibold mb-4">Novas Notificações</h2>
           {notifications.map((notif) => (
             <div key={notif.id} className="bg-blue-50 border border-blue-200 p-4 rounded mb-2">
-              <p>{notif.message || "Nova notificação"}</p>
+              <p>{notif.message || "Nova resposta de email"}</p>
               <p className="text-sm text-gray-500">
                 {notif.created_at ? format(new Date(notif.created_at), "MMM d, yyyy h:mm a") : ""}
               </p>
