@@ -152,7 +152,7 @@ export default function InboxPage() {
       console.error("❌ Error sending the email:", error);
     }
   
-    setIsReplying(false);
+    //setIsReplying(false);
     setReplyText("");
   };
   
