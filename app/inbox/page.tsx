@@ -43,7 +43,7 @@ const fetchTicketsFromAPI = async (setMessages, setNotifications, lastNotificati
       })
 
       if (newNotifs.length > 0) {
-        // Se desejar, acumule as novas notificações no estado (ou substitua, conforme sua necessidade)
+        // Acumula as novas notificações no estado
         setNotifications(prev => [...prev, ...newNotifs])
         // Atualiza o último timestamp para a notificação mais recente recebida
         const maxDate = newNotifs.reduce((max, notif) => {
@@ -83,18 +83,27 @@ export default function InboxPage() {
     return () => clearInterval(interval)
   }, [])
 
+  // Atualiza o ticket selecionado sempre que "messages" for atualizado
+  useEffect(() => {
+    if (selectedMessage) {
+      const updatedTicket = messages.find(msg => msg.id === selectedMessage.id)
+      if (updatedTicket && updatedTicket !== selectedMessage) {
+        setSelectedMessage(updatedTicket)
+      }
+    }
+  }, [messages, selectedMessage])
+
   const openTicket = async (message) => {
     try {
       await fetch("https://api.helpdesk.meerkatcoding.com/webhook/get-email-thread", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: message.id
-        }),
+        body: JSON.stringify({ id: message.id }),
       })
     } catch (error) {
       console.error("❌ Client not found", error)
     }
+    // Aqui setamos o ticket selecionado; em seguida, o useEffect atualizará com os dados mais recentes
     setSelectedMessage(message)
   }
 
@@ -217,7 +226,7 @@ export default function InboxPage() {
     (message) =>
       (statusFilter === "all" || message.status === statusFilter) &&
       (message.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        message.from_email.toLowerCase().includes(searchQuery.toLowerCase())),
+        message.from_email.toLowerCase().includes(searchQuery.toLowerCase()))
   )
 
   const indexOfLastMessage = currentPage * messagesPerPage
