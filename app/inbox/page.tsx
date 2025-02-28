@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { format } from "date-fns"
 import { Trash2, Send, X, ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -8,11 +8,10 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-// ✅ Fetch Tickets from Supabase API
-const fetchTicketsFromAPI = async (setMessages) => {
+const fetchTicketsFromAPI = async (setMessages, setNotifications, lastNotificationTimeRef) => {
   try {
     const response = await fetch("/api/create-ticket")
-    const notifications = await fetch("/api/notifications")
+    const notificationsResponse = await fetch("/api/notifications")
 
     if (!response.ok) {
       throw new Error(`❌ API request failed with status: ${response.status}`)
@@ -24,24 +23,51 @@ const fetchTicketsFromAPI = async (setMessages) => {
     }
 
     const data = await response.json()
-    const data_notif = await notifications.json()
-    console.log(data)
-    console.log(data_notif)
-
-    
+    const data_notif = await notificationsResponse.json()
+    console.log("Tickets retornados:", data)
+    console.log("Notificações retornadas:", data_notif)
 
     if (data.success && Array.isArray(data.tickets)) {
       setMessages(data.tickets)
     } else {
       console.warn("❌ API returned no tickets")
     }
+
+    // Supondo que a resposta de notificações também tenha a propriedade "tickets"
+    if (data_notif.success && Array.isArray(data_notif.tickets)) {
+      const allNotifs = data_notif.tickets
+
+      // Filtra apenas as notificações com created_at posterior à referência
+      const newNotifs = allNotifs.filter(notif => {
+        return new Date(notif.created_at) > lastNotificationTimeRef.current
+      })
+
+      if (newNotifs.length > 0) {
+        // Se desejar, acumule as novas notificações no estado (ou substitua, conforme sua necessidade)
+        setNotifications(prev => [...prev, ...newNotifs])
+        // Atualiza o último timestamp para a notificação mais recente recebida
+        const maxDate = newNotifs.reduce((max, notif) => {
+          const notifDate = new Date(notif.created_at)
+          return notifDate > max ? notifDate : max
+        }, lastNotificationTimeRef.current)
+        lastNotificationTimeRef.current = maxDate
+      } else {
+        console.warn("Nenhuma notificação nova")
+      }
+    } else {
+      console.warn("❌ Nenhuma notificação retornada")
+    }
   } catch (error) {
-    console.error("❌ Failed to fetch tickets:", error)
+    console.error("❌ Failed to fetch data:", error)
   }
 }
 
 export default function InboxPage() {
   const [messages, setMessages] = useState([])
+  const [notifications, setNotifications] = useState([])
+  // Armazena o timestamp inicial (apenas notificações posteriores a esse momento serão consideradas novas)
+  const lastNotificationTimeRef = useRef(new Date())
+
   const [selectedMessage, setSelectedMessage] = useState(null)
   const [replyText, setReplyText] = useState("")
   const [status, setStatus] = useState("")
@@ -51,13 +77,13 @@ export default function InboxPage() {
   const messagesPerPage = 10
 
   useEffect(() => {
-    fetchTicketsFromAPI(setMessages)
-    const interval = setInterval(() => fetchTicketsFromAPI(setMessages), 5000)
+    // Na primeira chamada, notificações anteriores ao mount serão ignoradas
+    fetchTicketsFromAPI(setMessages, setNotifications, lastNotificationTimeRef)
+    const interval = setInterval(() => fetchTicketsFromAPI(setMessages, setNotifications, lastNotificationTimeRef), 5000)
     return () => clearInterval(interval)
   }, [])
 
-  const openTicket =  async (message) => {
-
+  const openTicket = async (message) => {
     try {
       await fetch("https://api.helpdesk.meerkatcoding.com/webhook/get-email-thread", {
         method: "POST",
@@ -65,13 +91,12 @@ export default function InboxPage() {
         body: JSON.stringify({
           id: message.id
         }),
-      });
+      })
     } catch (error) {
-      console.error("❌ Client not found", error);
+      console.error("❌ Client not found", error)
     }
-
-    setSelectedMessage(message);
-  };
+    setSelectedMessage(message)
+  }
 
   const closeTicket = (e) => {
     if (e.target.id === "ticketModal") {
@@ -106,18 +131,17 @@ export default function InboxPage() {
   }
 
   const handleSendReply = async () => {
-    if (!replyText.trim()) return;
-  
+    if (!replyText.trim()) return
+
     const newReply = {
       sender: "Support Team",
       message: replyText,
       timestamp: new Date().toISOString(),
-    };
-  
-    const updatedConversation = [...selectedMessage.conversation, newReply];
-  
+    }
+
+    const updatedConversation = [...selectedMessage.conversation, newReply]
+
     try {
-      // Update the ticket in Supabase (or your backend API)
       const response = await fetch("/api/update-ticket", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -125,9 +149,9 @@ export default function InboxPage() {
           id: selectedMessage.id,
           conversation: updatedConversation,
         }),
-      });
-  
-      const result = await response.json();
+      })
+
+      const result = await response.json()
       if (result.success) {
         setMessages(
           messages.map((msg) =>
@@ -135,16 +159,15 @@ export default function InboxPage() {
               ? { ...msg, conversation: updatedConversation }
               : msg
           )
-        );
-        setSelectedMessage({ ...selectedMessage, conversation: updatedConversation });
+        )
+        setSelectedMessage({ ...selectedMessage, conversation: updatedConversation })
       } else {
-        console.error("❌ Failed to update ticket:", result.error);
+        console.error("❌ Failed to update ticket:", result.error)
       }
     } catch (error) {
-      console.error("❌ Error updating ticket:", error);
+      console.error("❌ Error updating ticket:", error)
     }
-  
-    // Independently call the custom webhook
+
     try {
       await fetch("https://api.helpdesk.meerkatcoding.com/webhook/send-email-response", {
         method: "POST",
@@ -153,15 +176,14 @@ export default function InboxPage() {
           id: selectedMessage.id,
           message: newReply,
         }),
-      });
+      })
     } catch (error) {
-      console.error("❌ Error sending the email:", error);
+      console.error("❌ Error sending the email:", error)
     }
-  
-    //setIsReplying(false);
-    setReplyText("");
-  };
-  
+
+    setReplyText("")
+  }
+
   const deleteTicket = async (id) => {
     try {
       const response = await fetch("/api/delete-ticket", {
@@ -184,7 +206,6 @@ export default function InboxPage() {
 
   const getStatusTag = (status) => {
     let color = "bg-gray-400"
-    console.log("test")
     if (status === "open") color = "bg-green-500"
     if (status === "attending") color = "bg-yellow-500"
     if (status === "closed") color = "bg-red-500"
@@ -210,6 +231,22 @@ export default function InboxPage() {
   return (
     <div className="max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold mb-6">Inbox</h1>
+
+      {/* Seção de Notificações - exibindo apenas as novas */}
+      {notifications.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-2xl font-semibold mb-4">Novas Notificações</h2>
+          {notifications.map((notif) => (
+            <div key={notif.id} className="bg-blue-50 border border-blue-200 p-4 rounded mb-2">
+              <p>{notif.message || "Nova notificação"}</p>
+              <p className="text-sm text-gray-500">
+                {notif.created_at ? format(new Date(notif.created_at), "MMM d, yyyy h:mm a") : ""}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="mb-4 flex items-center space-x-4">
         <Input
           type="text"
@@ -255,7 +292,7 @@ export default function InboxPage() {
         ))}
       </div>
 
-      {/* Pagination */}
+      {/* Paginação */}
       <div className="flex justify-center items-center space-x-2 mt-4">
         <Button variant="outline" onClick={() => paginate(currentPage - 1)} disabled={currentPage === 1}>
           <ChevronLeft className="h-4 w-4" />
@@ -342,7 +379,6 @@ export default function InboxPage() {
                   <Send className="mr-2 h-4 w-4" /> Send Reply
                 </Button>
               </div>
-
             </div>
           </div>
         </div>
@@ -350,4 +386,3 @@ export default function InboxPage() {
     </div>
   )
 }
-
